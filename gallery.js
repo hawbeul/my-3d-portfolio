@@ -1,7 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, signInWithCustomToken, signInAnonymously, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'demo-portfolio';
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
@@ -17,32 +16,15 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__f
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-const storage = getStorage(app); 
 
+// State variables
 let isAdmin = false;
 let globalProjects = {};
 let currentOpenProjectId = null;
 let unsubscribeProjects = null;
 let unsubscribeProfile = null;
-let existingMainImgUrl = ''; 
 
-// 다국어 글로벌 변수 설정 및 초기화
-window.isKorean = localStorage.getItem('lang') === 'ko';
-if (window.isKorean) document.body.classList.add('ko');
-
-// 다국어 토글 함수
-window.toggleLanguage = function() {
-    window.isKorean = !window.isKorean;
-    if (window.isKorean) {
-        document.body.classList.add('ko');
-        localStorage.setItem('lang', 'ko');
-    } else {
-        document.body.classList.remove('ko');
-        localStorage.setItem('lang', 'en');
-    }
-    renderProjectsUI(); // 언어 변경 시 갤러리 텍스트 재렌더링
-};
-
+// UI Elements (DOMContentLoaded 이후에 안전하게 요소를 가져옴)
 let mainView, projectView;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -60,6 +42,7 @@ async function init() {
         }
     } catch (e) {
         console.error("Auth init failed:", e);
+        window.showMessage("Authentication Error", "Could not connect securely.");
     }
 }
 
@@ -92,11 +75,12 @@ async function checkAdminStatus(user) {
 window.handleAdminLogin = async () => {
     const provider = new GoogleAuthProvider();
     let resultUser = auth.currentUser;
+    
     try {
         const result = await signInWithPopup(auth, provider);
         resultUser = result.user;
     } catch (popupErr) {
-        console.warn("Popup blocked or cancelled.");
+        console.warn("Popup blocked or cancelled. Using current session to simulate Admin.", popupErr);
     }
 
     if(!resultUser) return;
@@ -108,21 +92,25 @@ window.handleAdminLogin = async () => {
         if (!adminSnap.exists()) {
             await setDoc(adminRef, { uid: resultUser.uid });
             isAdmin = true;
-            window.showMessage(window.isKorean ? "환영합니다" : "Welcome", window.isKorean ? "이 포트폴리오의 관리자로 등록되었습니다!" : "You are now the Admin!");
+            window.showMessage("Welcome", "You are now the Admin of this portfolio!");
         } else {
             isAdmin = (adminSnap.data().uid === resultUser.uid);
-            if (!isAdmin) window.showMessage(window.isKorean ? "접근 거부" : "Access Denied", window.isKorean ? "관리자 권한이 없습니다." : "Not authorized.");
-            else window.showMessage(window.isKorean ? "환영합니다" : "Welcome Back", window.isKorean ? "관리자 모드가 활성화되었습니다." : "Admin mode activated.");
+            if (!isAdmin) {
+                window.showMessage("Access Denied", "You are not authorized as the admin.");
+            } else {
+                window.showMessage("Welcome Back", "Admin mode activated.");
+            }
         }
         updateAdminUI();
     } catch (e) {
         console.error("Admin verification failed:", e);
+        window.showMessage("Error", "Could not verify admin status.");
     }
 };
 
 window.handleAdminLogout = async () => {
     await signOut(auth);
-    window.showMessage(window.isKorean ? "로그아웃" : "Logged Out", window.isKorean ? "관리자 모드를 종료했습니다." : "You have exited admin mode.");
+    window.showMessage("Logged Out", "You have exited admin mode.");
     init();
 };
 
@@ -145,25 +133,31 @@ function startListeners() {
             const data = snap.data();
             if(data.photoUrl) document.getElementById('profilePreview').src = data.photoUrl;
         }
-    });
+    }, (error) => console.error("Profile listen error:", error));
 
     const projectsCol = collection(db, 'artifacts', appId, 'public', 'data', 'portfolio');
     unsubscribeProjects = onSnapshot(projectsCol, (snapshot) => {
-        const projectsArray = [];
-        snapshot.forEach(doc => { projectsArray.push({ id: doc.id, ...doc.data() }); });
-        
-        projectsArray.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        globalProjects = {};
-        projectsArray.forEach(p => globalProjects[p.id] = p);
-        
-        renderProjectsUI();
-        
-        if (currentOpenProjectId && globalProjects[currentOpenProjectId]) {
-            populateProjectView(currentOpenProjectId);
-        } else if (currentOpenProjectId && !globalProjects[currentOpenProjectId]) {
-            window.closeProject();
+        if (snapshot.empty && isAdmin && Object.keys(globalProjects).length === 0) {
+            seedInitialData();
+        } else {
+            const projectsArray = [];
+            snapshot.forEach(doc => {
+                projectsArray.push({ id: doc.id, ...doc.data() });
+            });
+            
+            projectsArray.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            
+            globalProjects = {};
+            projectsArray.forEach(p => globalProjects[p.id] = p);
+            renderProjectsUI();
+            
+            if (currentOpenProjectId && globalProjects[currentOpenProjectId]) {
+                populateProjectView(currentOpenProjectId);
+            } else if (currentOpenProjectId && !globalProjects[currentOpenProjectId]) {
+                window.closeProject();
+            }
         }
-    });
+    }, (error) => console.error("Projects listen error:", error));
 }
 
 function stopListeners() {
@@ -173,11 +167,38 @@ function stopListeners() {
     renderProjectsUI();
 }
 
-async function uploadImageToStorage(file, folderPath) {
-    if (!file) return null;
-    const fileRef = ref(storage, `${folderPath}/${Date.now()}_${file.name}`);
-    await uploadBytes(fileRef, file);
-    return await getDownloadURL(fileRef);
+async function seedInitialData() {
+    const initialProjects = [
+        {
+            category: 'Likeness Sculpting',
+            title: 'Loki (Tom Hiddleston) 3D Sculpt',
+            description: 'A high-fidelity 3D likeness sculpt of Tom Hiddleston as Loki. Focused on anatomical accuracy, intricate micro-details of the skin pores, and stylized hair grooming to achieve a production-ready cinematic asset. Sculpted entirely in ZBrush and rendered with temporary polypaint.',
+            mainImg: 'https://placehold.co/1200x800/0d1117/06b6d4?text=Loki+Final+Render',
+            createdAt: Date.now(),
+            gallery: [
+                { url: 'https://placehold.co/800x600/161b22/22d3ee?text=ZBrush+High+Poly', caption: 'High Poly ZBrush Sculpt (Clay Render)' },
+                { url: 'https://placehold.co/800x600/161b22/22d3ee?text=Wireframe+Topology', caption: 'Retopology & Facial Wireframe' },
+                { url: 'https://placehold.co/800x600/161b22/22d3ee?text=Skin+Micro-Details', caption: 'Pore & Wrinkle Micro-Details' }
+            ]
+        },
+        {
+            category: 'Animation Character Design',
+            title: 'Goryeo 1020s Animation Characters',
+            description: 'Historical fantasy character models featuring "Cha Do-yeon" and "Geum Cheon-ho" set in the 1020s Goryeo era. The design emphasizes authentic traditional garments adapted for modern 3D animation, balancing hard-surface armor modeling with dynamic cloth simulation-ready topology.',
+            mainImg: 'https://placehold.co/1200x800/0d1117/06b6d4?text=Cha+Do-yeon+%26+Geum+Cheon-ho',
+            createdAt: Date.now() - 1000,
+            gallery: [
+                { url: 'https://placehold.co/800x600/161b22/22d3ee?text=Cha+Do-yeon+Full+Body', caption: 'Cha Do-yeon - Full Body Render' },
+                { url: 'https://placehold.co/800x600/161b22/22d3ee?text=Geum+Cheon-ho+Armor', caption: 'Geum Cheon-ho - Hard Surface Armor Details' },
+                { url: 'https://placehold.co/800x600/161b22/22d3ee?text=Garment+Topology', caption: 'Cloth Simulation Topology' }
+            ]
+        }
+    ];
+
+    const projectsCol = collection(db, 'artifacts', appId, 'public', 'data', 'portfolio');
+    for(let p of initialProjects) {
+        await addDoc(projectsCol, p);
+    }
 }
 
 function renderProjectsUI() {
@@ -188,12 +209,9 @@ function renderProjectsUI() {
     const projectsArray = Object.values(globalProjects);
     
     if (projectsArray.length === 0) {
-        const emptyTxt = window.isKorean ? "등록된 프로젝트가 없습니다." : "No projects found.";
-        container.innerHTML = `<div class="col-span-1 md:col-span-2 text-center py-10 text-gray-500">${emptyTxt}</div>`;
+        container.innerHTML = `<div class="col-span-1 md:col-span-2 text-center py-10 text-gray-500">No projects found.</div>`;
         return;
     }
-
-    const viewTxt = window.isKorean ? "자세히 보기" : "View Details";
 
     projectsArray.forEach(data => {
         const adminControls = isAdmin ? `
@@ -213,9 +231,11 @@ function renderProjectsUI() {
                 <div class="aspect-video w-full bg-dark-900 overflow-hidden relative">
                     <div class="absolute inset-0 bg-gradient-to-t from-dark-900 via-dark-900/40 to-transparent z-10 opacity-90 group-hover:opacity-100 transition-opacity duration-300"></div>
                     <img src="${data.mainImg || 'https://placehold.co/800x600/0d1117/06b6d4?text=No+Image'}" alt="${data.title}" class="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700 ease-in-out">
+                    
                     <div class="absolute inset-0 z-20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                         <span class="bg-dark-900/80 text-white px-6 py-3 rounded-full backdrop-blur-sm border border-white/10 font-medium flex items-center">
-                            ${viewTxt}
+                            View Project Details
+                            <svg class="ml-2 w-4 h-4 text-accent-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
                         </span>
                     </div>
                 </div>
@@ -232,14 +252,22 @@ function renderProjectsUI() {
 
 window.navigateSection = function(e, targetId) {
     e.preventDefault();
-    if (projectView.classList.contains('view-active')) window.closeProject(() => { document.getElementById(targetId).scrollIntoView(); });
-    else document.getElementById(targetId).scrollIntoView();
+    if (projectView.classList.contains('view-active')) {
+        window.closeProject(() => {
+            document.getElementById(targetId).scrollIntoView();
+        });
+    } else {
+        document.getElementById(targetId).scrollIntoView();
+    }
 };
 
 window.navigateHome = function(e) {
     e.preventDefault();
-    if (projectView.classList.contains('view-active')) window.closeProject(() => window.scrollTo(0, 0));
-    else window.scrollTo(0, 0);
+    if (projectView.classList.contains('view-active')) {
+        window.closeProject(() => window.scrollTo(0, 0));
+    } else {
+        window.scrollTo(0, 0);
+    }
 };
 
 function populateProjectView(projectId) {
@@ -271,8 +299,10 @@ function populateProjectView(projectId) {
 window.openProject = function(projectId) {
     currentOpenProjectId = projectId;
     populateProjectView(projectId);
+
     mainView.classList.remove('view-active');
     mainView.classList.add('view-hidden');
+    
     setTimeout(() => {
         window.scrollTo({ top: 0, behavior: 'instant' });
         projectView.classList.remove('view-hidden');
@@ -284,22 +314,32 @@ window.closeProject = function(callback) {
     currentOpenProjectId = null;
     projectView.classList.remove('view-active');
     projectView.classList.add('view-hidden');
+    
     setTimeout(() => {
         mainView.classList.remove('view-hidden');
         mainView.classList.add('view-active');
-        if(callback && typeof callback === 'function') callback();
-        else document.getElementById('portfolio').scrollIntoView({ behavior: 'instant' });
+        
+        if(callback && typeof callback === 'function') {
+            callback();
+        } else {
+            document.getElementById('portfolio').scrollIntoView({ behavior: 'instant' });
+        }
     }, 400);
 };
 
 window.openModal = function(modalId) {
     document.getElementById('modal-backdrop').classList.remove('hidden');
     document.getElementById('modal-backdrop').classList.add('flex');
+    
     ['alert-modal', 'confirm-modal', 'profile-modal', 'project-modal'].forEach(id => {
         document.getElementById(id).classList.add('hidden');
     });
+    
     document.getElementById(modalId).classList.remove('hidden');
-    setTimeout(() => { document.getElementById('modal-backdrop').style.opacity = '1'; }, 10);
+    
+    setTimeout(() => {
+        document.getElementById('modal-backdrop').style.opacity = '1';
+    }, 10);
 };
 
 window.closeModals = function() {
@@ -327,58 +367,39 @@ window.showConfirm = function(message, onConfirm) {
 
 window.saveProfile = async function() {
     if (!auth.currentUser || !isAdmin) return;
-    
-    const fileInput = document.getElementById('profile-file-input');
-    if(fileInput.files.length === 0) return; 
-
-    const btn = document.getElementById('save-profile-btn');
-    btn.textContent = window.isKorean ? "업로드 중..." : "Uploading...";
-    btn.disabled = true;
+    const url = document.getElementById('profile-url-input').value.trim();
+    if(!url) return;
 
     try {
-        const file = fileInput.files[0];
-        const imageUrl = await uploadImageToStorage(file, 'profile');
-        
         const profileRef = doc(db, 'artifacts', appId, 'public', 'data', 'profile', 'main');
-        await setDoc(profileRef, { photoUrl: imageUrl }, { merge: true });
-        
+        await setDoc(profileRef, { photoUrl: url }, { merge: true });
         window.closeModals();
-        fileInput.value = ""; 
     } catch(e) {
         console.error("Save profile error", e);
-        window.showMessage(window.isKorean ? "오류" : "Error", window.isKorean ? "이미지를 업로드할 수 없습니다." : "Could not upload profile picture.");
-    } finally {
-        btn.textContent = window.isKorean ? "저장" : "Save Image";
-        btn.disabled = false;
+        window.showMessage("Error", "Could not save profile picture.");
     }
 };
 
 window.editCurrentProject = function() {
-    if(currentOpenProjectId) window.openEditProject(currentOpenProjectId);
+    if(currentOpenProjectId) {
+        window.openEditProject(currentOpenProjectId);
+    }
 };
 
 window.openEditProject = function(projectId) {
     if (!isAdmin) return;
     
     const isEdit = !!projectId;
-    const txtEdit = window.isKorean ? "프로젝트 수정" : "Edit Project";
-    const txtNew = window.isKorean ? "새 프로젝트 추가" : "Add New Project";
-    
-    document.getElementById('project-modal-title').textContent = isEdit ? txtEdit : txtNew;
+    document.getElementById('project-modal-title').textContent = isEdit ? "Edit Project" : "Add New Project";
     document.getElementById('project-id-input').value = projectId || "";
     document.getElementById('gallery-fields-container').innerHTML = '';
-    
-    document.getElementById('project-mainimg-file').value = "";
-    const statusText = document.getElementById('main-img-status');
     
     if (isEdit && globalProjects[projectId]) {
         const p = globalProjects[projectId];
         document.getElementById('project-category-input').value = p.category || '';
         document.getElementById('project-title-input').value = p.title || '';
+        document.getElementById('project-mainimg-input').value = p.mainImg || '';
         document.getElementById('project-desc-input').value = p.description || '';
-        
-        existingMainImgUrl = p.mainImg || '';
-        statusText.textContent = existingMainImgUrl ? (window.isKorean ? "✓ 기존 이미지가 적용되어 있습니다. 변경하려면 새 파일을 업로드하세요." : "✓ Existing image loaded. Upload a new file to replace it.") : "";
         
         if (p.gallery && Array.isArray(p.gallery)) {
             p.gallery.forEach(g => window.addGalleryField(g.url, g.caption));
@@ -386,36 +407,24 @@ window.openEditProject = function(projectId) {
     } else {
         document.getElementById('project-category-input').value = '';
         document.getElementById('project-title-input').value = '';
+        document.getElementById('project-mainimg-input').value = '';
         document.getElementById('project-desc-input').value = '';
-        existingMainImgUrl = '';
-        statusText.textContent = "";
         window.addGalleryField(); 
     }
     
     window.openModal('project-modal');
 };
 
-window.addGalleryField = function(existingUrl = '', caption = '') {
+window.addGalleryField = function(url = '', caption = '') {
     const container = document.getElementById('gallery-fields-container');
     const div = document.createElement('div');
-    div.className = 'flex flex-col sm:flex-row gap-2 items-center bg-dark-900 p-3 rounded border border-white/10';
-    div.dataset.existingUrl = existingUrl; 
-
-    const msgTxt = window.isKorean ? "✓ 기존 이미지가 적용됨. 새 파일 선택시 교체됩니다." : "✓ Existing image attached. Select new to replace.";
-    const existingText = existingUrl ? `<div class="text-xs text-accent-500 mb-1 truncate w-full">${msgTxt}</div>` : '';
-    const capPlace = window.isKorean ? "캡션 (예: 와이어프레임 샷)" : "Caption (e.g. Wireframe)";
-
+    div.className = 'flex flex-col sm:flex-row gap-2 items-center bg-dark-900 p-2 rounded';
     div.innerHTML = `
-        <div class="w-full sm:w-1/2 flex flex-col justify-end h-full">
-            ${existingText}
-            <input type="file" accept="image/*" class="gallery-file text-sm text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-dark-700 file:text-white hover:file:bg-dark-600 cursor-pointer">
-        </div>
-        <div class="w-full sm:w-1/2 flex gap-2 h-full items-end">
-            <input type="text" placeholder="${capPlace}" value="${caption}" class="gallery-cap w-full bg-transparent border border-white/10 rounded-md p-2 text-white focus:border-accent-500 text-sm h-[38px]">
-            <button type="button" onclick="this.parentElement.parentElement.remove()" class="text-gray-500 hover:text-red-400 p-2 transition-colors h-[38px] flex items-center">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-            </button>
-        </div>
+        <input type="text" placeholder="Image URL" value="${url}" class="gallery-url w-full sm:w-1/2 bg-transparent border border-white/10 rounded p-2 text-white focus:border-accent-500 text-sm">
+        <input type="text" placeholder="Caption" value="${caption}" class="gallery-cap w-full sm:w-1/2 bg-transparent border border-white/10 rounded p-2 text-white focus:border-accent-500 text-sm">
+        <button type="button" onclick="this.parentElement.remove()" class="text-gray-500 hover:text-red-400 p-2 transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+        </button>
     `;
     container.appendChild(div);
 };
@@ -426,43 +435,28 @@ window.saveProject = async function() {
     const id = document.getElementById('project-id-input').value;
     const category = document.getElementById('project-category-input').value.trim();
     const title = document.getElementById('project-title-input').value.trim();
+    const mainImg = document.getElementById('project-mainimg-input').value.trim();
     const desc = document.getElementById('project-desc-input').value.trim();
-    const mainImgFile = document.getElementById('project-mainimg-file').files[0];
     
     if(!title) {
-        window.showMessage(window.isKorean ? "입력 확인" : "Validation", window.isKorean ? "프로젝트 제목은 필수입니다." : "Project title is required.");
+        window.showMessage("Validation", "Project title is required.");
         return;
     }
 
-    const btn = document.getElementById('save-project-btn');
-    btn.textContent = window.isKorean ? "저장 중..." : "Uploading & Saving...";
-    btn.disabled = true;
+    const gallery = [];
+    const fields = document.getElementById('gallery-fields-container').children;
+    for(let i=0; i<fields.length; i++) {
+        const gUrl = fields[i].querySelector('.gallery-url').value.trim();
+        const gCap = fields[i].querySelector('.gallery-cap').value.trim();
+        if(gUrl) gallery.push({ url: gUrl, caption: gCap });
+    }
+
+    const projectData = {
+        category, title, description: desc, mainImg, gallery,
+        updatedAt: Date.now()
+    };
 
     try {
-        let finalMainImgUrl = existingMainImgUrl; 
-        if (mainImgFile) {
-            finalMainImgUrl = await uploadImageToStorage(mainImgFile, 'portfolio');
-        }
-
-        const gallery = [];
-        const fields = document.getElementById('gallery-fields-container').children;
-        
-        for(let i=0; i<fields.length; i++) {
-            const fileInput = fields[i].querySelector('.gallery-file');
-            const gCap = fields[i].querySelector('.gallery-cap').value.trim();
-            let gUrl = fields[i].dataset.existingUrl || '';
-
-            if (fileInput.files.length > 0) {
-                gUrl = await uploadImageToStorage(fileInput.files[0], 'portfolio_gallery');
-            }
-            if(gUrl) gallery.push({ url: gUrl, caption: gCap });
-        }
-
-        const projectData = {
-            category, title, description: desc, mainImg: finalMainImgUrl, gallery,
-            updatedAt: Date.now()
-        };
-
         if (id) {
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'portfolio', id);
             await updateDoc(docRef, projectData);
@@ -474,24 +468,19 @@ window.saveProject = async function() {
         window.closeModals();
     } catch (e) {
         console.error("Save project error", e);
-        window.showMessage(window.isKorean ? "오류" : "Error", window.isKorean ? "프로젝트를 저장할 수 없습니다." : "Could not save the project.");
-    } finally {
-        btn.textContent = window.isKorean ? "저장하기" : "Save Project";
-        btn.disabled = false;
+        window.showMessage("Error", "Could not save the project.");
     }
 };
 
 window.deleteProject = function(projectId) {
     if (!isAdmin) return;
-    const msg = window.isKorean ? "이 프로젝트를 영구적으로 삭제하시겠습니까?" : "Are you sure you want to permanently delete this project?";
-    
-    window.showConfirm(msg, async () => {
+    window.showConfirm("Are you sure you want to permanently delete this project?", async () => {
         try {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'portfolio', projectId));
             if(currentOpenProjectId === projectId) window.closeProject();
         } catch(e) {
             console.error("Delete error", e);
-            window.showMessage(window.isKorean ? "오류" : "Error", window.isKorean ? "삭제 실패" : "Could not delete the project.");
+            window.showMessage("Error", "Could not delete the project.");
         }
     });
 };
