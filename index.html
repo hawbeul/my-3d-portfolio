@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이건의 (Geon-ui Lee) | 3D Character Modeler</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Tailwind Configuration & Custom Styles -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        dark: {
+                            900: '#06090e',
+                            800: '#0d1117',
+                            700: '#161b22',
+                        },
+                        accent: {
+                            500: '#06b6d4',
+                            400: '#22d3ee',
+                            300: '#67e8f9',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #06090e; }
+        ::-webkit-scrollbar-thumb { background: #161b22; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #06b6d4; }
+
+        .ambient-glow {
+            position: absolute;
+            width: 700px;
+            height: 700px;
+            background: radial-gradient(circle, rgba(6, 182, 212, 0.08) 0%, rgba(6, 9, 14, 0) 70%);
+            top: -250px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .view-hidden {
+            opacity: 0;
+            pointer-events: none;
+            position: absolute;
+            width: 100%;
+            visibility: hidden;
+            transition: opacity 0.4s ease-in-out, visibility 0s linear 0.4s;
+        }
+        
+        .view-active {
+            opacity: 1;
+            pointer-events: auto;
+            position: relative;
+            visibility: visible;
+            transition: opacity 0.4s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-dark-900 text-gray-300 font-sans antialiased relative overflow-x-hidden min-h-screen">
+    
+    <div class="ambient-glow"></div>
+
+    <nav class="fixed w-full z-50 bg-dark-900/90 backdrop-blur-md border-b border-white/5">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-20">
+                <div class="flex-shrink-0">
+                    <a href="#" onclick="navigateHome(event)" class="text-xl font-bold tracking-wider text-white">GL<span class="text-accent-500">.</span></a>
+                </div>
+                <div class="hidden md:block">
+                    <div class="ml-10 flex items-baseline space-x-8">
+                        <a href="#about" onclick="navigateSection(event, 'about')" class="hover:text-white transition-colors duration-200 px-3 py-2 rounded-md text-sm font-medium">About</a>
+                        <a href="#portfolio" onclick="navigateSection(event, 'portfolio')" class="hover:text-white transition-colors duration-200 px-3 py-2 rounded-md text-sm font-medium">Portfolio</a>
+                        <a href="#contact" onclick="navigateSection(event, 'contact')" class="bg-accent-500 hover:bg-accent-400 text-dark-900 transition-colors duration-200 px-5 py-2 rounded-md text-sm font-bold shadow-[0_0_15px_rgba(6,182,212,0.3)] hover:shadow-[0_0_25px_rgba(34,211,238,0.6)]">Contact</a>
+                        
+                        <button id="admin-login-btn" onclick="handleAdminLogin()" class="text-sm font-medium text-gray-400 hover:text-white transition-colors duration-200 flex items-center ml-4 border-l border-white/10 pl-8">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path></svg> 
+                            Admin Login
+                        </button>
+                        <button id="admin-logout-btn" onclick="handleAdminLogout()" class="hidden text-sm font-bold text-accent-500 hover:text-accent-400 transition-colors duration-200 flex items-center ml-4 border-l border-white/10 pl-8">
+                            Logout Admin
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MAIN VIEW WRAPPER -->
+    <div id="main-view" class="view-active pt-20">
+        
+        <!-- Hero Section -->
+        <section class="pt-24 pb-20 md:pt-32 md:pb-28 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto flex flex-col items-center">
+            <div class="flex flex-col md:flex-row items-center justify-center gap-8 mb-10 w-full">
+                <!-- Profile Image Upload Area -->
+                <div class="relative group shrink-0">
+                    <div class="w-40 h-40 md:w-48 md:h-48 rounded-full overflow-hidden border-4 border-dark-700 group-hover:border-accent-500 transition-all duration-300 shadow-[0_0_30px_rgba(6,182,212,0.15)] bg-dark-800 flex items-center justify-center">
+                        <img id="profilePreview" src="https://placehold.co/400x400/0d1117/06b6d4?text=Photo" alt="Profile Picture" class="w-full h-full object-cover">
+                    </div>
+                    <div id="admin-profile-edit" class="hidden absolute inset-0 flex items-center justify-center bg-dark-900/70 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-full cursor-pointer backdrop-blur-[2px]" onclick="openModal('profile-modal')">
+                        <div class="flex flex-col items-center text-white">
+                            <svg class="w-8 h-8 mb-1 text-accent-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            <span class="text-sm font-medium">Edit URL</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Title & Name Area -->
+                <div class="text-center md:text-left">
+                    <h2 class="text-accent-400 font-bold tracking-widest uppercase text-sm md:text-base mb-3">Portfolio</h2>
+                    <h1 class="text-4xl md:text-5xl lg:text-7xl font-extrabold text-white tracking-tight mb-4">
+                        이건의 <span class="text-gray-500 font-light text-2xl md:text-4xl block sm:inline mt-1 sm:mt-0">(Geon-ui Lee)</span>
+                    </h1>
+                    <p class="text-xl md:text-2xl text-gray-400 font-light">
+                        3D Character Modeler <span class="text-accent-500 font-bold">&</span> Game Artist
+                    </p>
+                </div>
+            </div>
+
+            <button onclick="document.getElementById('portfolio').scrollIntoView()" class="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-dark-800 border-dark-700 hover:bg-dark-700 hover:border-accent-500 hover:shadow-[0_0_20px_rgba(6,182,212,0.2)] transition-all duration-300">
+                View My Work
+                <svg class="ml-2 -mr-1 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+            </button>
+        </section>
+
+        <!-- About & Skills Section -->
+        <section id="about" class="py-20 bg-dark-800/40 border-y border-white/5">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                    <div>
+                        <h3 class="text-3xl font-bold text-white mb-6 flex items-center">
+                            <span class="w-8 h-1 bg-accent-500 mr-4 inline-block shadow-[0_0_10px_rgba(6,182,212,0.8)]"></span>
+                            Specialization
+                        </h3>
+                        <p class="text-gray-400 leading-relaxed mb-6">
+                            I am an aspiring 3D Character Modeler passionate about bringing digital personas to life. My primary focus lies in <strong class="text-gray-200 font-medium">High-poly sculpting</strong> and creating highly detailed, production-ready <strong class="text-gray-200 font-medium">3D character models</strong> for games and cinematics.
+                        </p>
+                        <p class="text-gray-400 leading-relaxed">
+                            I strive for anatomical accuracy, compelling textures, and optimized topology that meets modern AAA game engine requirements.
+                        </p>
+                    </div>
+                    
+                    <div class="bg-dark-900/50 p-8 rounded-2xl border border-white/5 shadow-2xl backdrop-blur-sm">
+                        <h4 class="text-xl font-bold text-white mb-6 flex items-center">
+                            <svg class="w-5 h-5 mr-3 text-accent-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                            Software Proficiency
+                        </h4>
+                        <div class="flex flex-wrap gap-3">
+                            <span class="px-4 py-2 bg-dark-800 border border-white/10 rounded-md text-sm text-gray-200 hover:border-accent-500 hover:text-accent-400 hover:shadow-[0_0_10px_rgba(6,182,212,0.2)] transition-all duration-300 cursor-default">ZBrush</span>
+                            <span class="px-4 py-2 bg-dark-800 border border-white/10 rounded-md text-sm text-gray-200 hover:border-accent-500 hover:text-accent-400 hover:shadow-[0_0_10px_rgba(6,182,212,0.2)] transition-all duration-300 cursor-default">Autodesk 3ds Max</span>
+                            <span class="px-4 py-2 bg-dark-800 border border-white/10 rounded-md text-sm text-gray-200 hover:border-accent-500 hover:text-accent-400 hover:shadow-[0_0_10px_rgba(6,182,212,0.2)] transition-all duration-300 cursor-default">Maya</span>
+                            <span class="px-4 py-2 bg-dark-800 border border-white/10 rounded-md text-sm text-gray-200 hover:border-accent-500 hover:text-accent-400 hover:shadow-[0_0_10px_rgba(6,182,212,0.2)] transition-all duration-300 cursor-default">Blender</span>
+                            <span class="px-4 py-2 bg-dark-800 border border-white/10 rounded-md text-sm text-gray-200 hover:border-accent-500 hover:text-accent-400 hover:shadow-[0_0_10px_rgba(6,182,212,0.2)] transition-all duration-300 cursor-default">Substance Painter</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Portfolio Section -->
+        <section id="portfolio" class="py-24">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="text-center mb-16 relative">
+                    <h2 class="text-4xl font-bold text-white mb-4">Featured Projects</h2>
+                    <p class="text-gray-400">Select a project to view detailed workflows and renders.</p>
+                    
+                    <button id="admin-add-project" onclick="openEditProject(null)" class="hidden mt-6 md:mt-0 md:absolute right-0 top-0 inline-flex items-center justify-center px-4 py-2 border border-accent-500 text-sm font-medium rounded-md text-accent-400 hover:bg-accent-500 hover:text-dark-900 transition-all duration-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        Add New Project
+                    </button>
+                </div>
+
+                <div id="portfolio-grid" class="grid grid-cols-1 md:grid-cols-2 gap-10 max-w-5xl mx-auto">
+                    <!-- Projects will be injected here via Firebase -->
+                    <div class="col-span-1 md:col-span-2 text-center py-20 flex flex-col items-center justify-center">
+                        <svg class="animate-spin h-10 w-10 text-accent-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <p class="text-gray-400 animate-pulse">Loading Portfolio...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Contact Section -->
+        <section id="contact" class="py-24 bg-dark-800/30 border-t border-white/5 relative overflow-hidden">
+            <div class="absolute top-0 right-0 -mr-32 -mt-32 w-96 h-96 rounded-full bg-accent-500/5 blur-[100px] pointer-events-none"></div>
+            
+            <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
+                <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Let's Create Together</h2>
+                <p class="text-gray-400 mb-10 text-lg">Currently open for freelance opportunities and full-time positions. Feel free to reach out to discuss your next project.</p>
+                
+                <div class="flex flex-col sm:flex-row justify-center gap-4">
+                    <a href="mailto:contact@example.com" class="inline-flex items-center justify-center px-8 py-4 border border-transparent text-base font-bold rounded-md text-dark-900 bg-accent-500 hover:bg-accent-400 hover:shadow-[0_0_25px_rgba(6,182,212,0.5)] transition-all duration-300">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                        Email Me
+                    </a>
+                    <a href="#" class="inline-flex items-center justify-center px-8 py-4 border border-white/10 text-base font-medium rounded-md text-white bg-dark-800 hover:bg-dark-700 hover:border-white/30 transition-all duration-300">
+                        View Resume
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <footer class="bg-dark-900 border-t border-white/5 py-8">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center">
+                <p class="text-gray-500 text-sm">&copy; 2026 이건의 (Geon-ui Lee). All rights reserved.</p>
+                <div class="flex space-x-6 mt-4 md:mt-0">
+                    <a href="#" class="text-gray-500 hover:text-accent-400 transition-colors">
+                        <span class="sr-only">ArtStation</span>
+                        <svg class="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12.915 6.002L18.47 15.61l3.056-5.266L15.97 1.545h-3.055v4.457zm-6.19 10.748l2.67-4.606 2.672 4.606-2.672 4.607-2.67-4.607zm3.116-6.425l-2.67-4.607H1.826l8.344 14.436v-9.83z"/></svg>
+                    </a>
+                </div>
+            </div>
+        </footer>
+    </div>
+    <!-- END MAIN VIEW -->
+
+    <!-- DETAILED PROJECT VIEW (Initially Hidden) -->
+    <div id="project-view" class="view-hidden pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto min-h-screen">
+        
+        <!-- Back Button & Admin Controls -->
+        <div class="flex justify-between items-center mb-10">
+            <button onclick="closeProject()" class="group flex items-center text-gray-400 hover:text-accent-400 transition-colors duration-300 font-medium">
+                <svg class="w-5 h-5 mr-2 transform group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                Back to Portfolio
+            </button>
+            <button id="pv-admin-edit" onclick="editCurrentProject()" class="hidden items-center justify-center px-4 py-2 bg-dark-800 border border-white/10 text-sm font-medium rounded-md text-white hover:border-accent-500 transition-all duration-300">
+                <svg class="w-4 h-4 mr-2 text-accent-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                Edit Project
+            </button>
+        </div>
+
+        <!-- Project Header -->
+        <div class="mb-10">
+            <span id="pv-category" class="text-accent-500 font-bold uppercase tracking-widest text-sm mb-3 block">Category</span>
+            <h1 id="pv-title" class="text-3xl md:text-5xl font-extrabold text-white mb-6">Project Title</h1>
+            <p id="pv-desc" class="text-gray-400 text-lg leading-relaxed max-w-3xl">Project description goes here...</p>
+        </div>
+
+        <!-- Main Hero Image -->
+        <div class="w-full h-auto md:h-[60vh] rounded-2xl overflow-hidden border border-white/10 mb-16 shadow-[0_0_40px_rgba(6,182,212,0.15)] bg-dark-800">
+            <img id="pv-main-img" src="" alt="Main Project Render" class="w-full h-full object-cover">
+        </div>
+
+        <!-- Workflow / Gallery Grid -->
+        <div>
+            <h3 class="text-2xl font-bold text-white mb-8 flex items-center">
+                <span class="w-6 h-1 bg-accent-500 mr-3 inline-block"></span>
+                Workflow & Details
+            </h3>
+            <div id="pv-gallery" class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Gallery images will be injected here via JavaScript -->
+            </div>
+        </div>
+        
+        <!-- Bottom CTA -->
+        <div class="mt-20 pt-10 border-t border-white/5 text-center">
+            <button onclick="closeProject()" class="inline-flex items-center justify-center px-8 py-3 border border-white/10 text-base font-medium rounded-md text-white bg-dark-800 hover:bg-dark-700 hover:border-accent-500 transition-all duration-300">
+                Return to Gallery
+            </button>
+        </div>
+    </div>
+    <!-- END DETAILED PROJECT VIEW -->
+
+    <!-- Admin Modals -->
+    <div id="modal-backdrop" class="fixed inset-0 bg-dark-900/90 backdrop-blur-sm z-[100] hidden items-center justify-center opacity-0 transition-opacity duration-300 flex-col py-10">
+        
+        <!-- Alert Modal -->
+        <div id="alert-modal" class="hidden bg-dark-800 p-6 rounded-xl border border-white/10 max-w-sm w-full mx-4 shadow-2xl">
+            <h3 class="text-xl font-bold text-white mb-2" id="alert-title">Notification</h3>
+            <p class="text-gray-400 mb-6" id="alert-message">Message</p>
+            <div class="flex justify-end">
+                <button onclick="closeModals()" class="px-4 py-2 bg-accent-500 text-dark-900 rounded-md font-bold hover:bg-accent-400 transition-colors">OK</button>
+            </div>
+        </div>
+
+        <!-- Confirm Modal -->
+        <div id="confirm-modal" class="hidden bg-dark-800 p-6 rounded-xl border border-white/10 max-w-sm w-full mx-4 shadow-2xl">
+            <h3 class="text-xl font-bold text-white mb-2">Confirm Action</h3>
+            <p class="text-gray-400 mb-6" id="confirm-message">Are you sure?</p>
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeModals()" class="px-4 py-2 bg-transparent border border-white/10 hover:bg-dark-700 text-white rounded-md transition-colors">Cancel</button>
+                <button id="confirm-btn" class="px-4 py-2 bg-red-500 text-white rounded-md font-bold hover:bg-red-400 transition-colors">Delete</button>
+            </div>
+        </div>
+
+        <!-- Profile Edit Modal -->
+        <div id="profile-modal" class="hidden bg-dark-800 p-6 rounded-xl border border-white/10 max-w-md w-full mx-4 shadow-2xl">
+            <h3 class="text-xl font-bold text-white mb-4">Edit Profile Picture</h3>
+            <p class="text-xs text-gray-500 mb-4">Enter a direct image URL (e.g., from Imgur, Discord, or any hosting service).</p>
+            <label class="block text-sm font-medium text-gray-400 mb-1">Image URL</label>
+            <input type="text" id="profile-url-input" class="w-full bg-dark-900 border border-white/10 rounded-md p-3 text-white mb-6 focus:border-accent-500 focus:outline-none" placeholder="https://example.com/image.jpg">
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeModals()" class="px-4 py-2 bg-transparent border border-white/10 hover:bg-dark-700 text-white rounded-md transition-colors">Cancel</button>
+                <button onclick="saveProfile()" class="px-4 py-2 bg-accent-500 text-dark-900 rounded-md font-bold hover:bg-accent-400 transition-colors">Save Image</button>
+            </div>
+        </div>
+
+        <!-- Project Edit Modal -->
+        <div id="project-modal" class="hidden bg-dark-800 p-6 rounded-xl border border-white/10 max-w-2xl w-full mx-4 shadow-2xl overflow-y-auto max-h-full">
+            <h3 class="text-2xl font-bold text-white mb-6 flex items-center"><span class="w-2 h-6 bg-accent-500 mr-3 inline-block"></span> <span id="project-modal-title">Add New Project</span></h3>
+            <input type="hidden" id="project-id-input">
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Category (e.g. Likeness Sculpting)</label>
+                    <input type="text" id="project-category-input" class="w-full bg-dark-900 border border-white/10 rounded-md p-2.5 text-white focus:border-accent-500 focus:outline-none" placeholder="Category">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Project Title</label>
+                    <input type="text" id="project-title-input" class="w-full bg-dark-900 border border-white/10 rounded-md p-2.5 text-white focus:border-accent-500 focus:outline-none" placeholder="Epic 3D Model">
+                </div>
+            </div>
+            
+            <label class="block text-sm font-medium text-gray-400 mb-1">Main Image URL</label>
+            <input type="text" id="project-mainimg-input" class="w-full bg-dark-900 border border-white/10 rounded-md p-2.5 text-white mb-4 focus:border-accent-500 focus:outline-none" placeholder="https://...">
+            
+            <label class="block text-sm font-medium text-gray-400 mb-1">Description</label>
+            <textarea id="project-desc-input" rows="4" class="w-full bg-dark-900 border border-white/10 rounded-md p-2.5 text-white mb-6 focus:border-accent-500 focus:outline-none" placeholder="Describe the workflow, tools used, etc..."></textarea>
+            
+            <div class="flex justify-between items-center mb-3">
+                <label class="block text-sm font-medium text-accent-500">Workflow Gallery Images</label>
+                <button onclick="addGalleryField()" class="text-xs font-bold bg-dark-700 hover:bg-dark-900 border border-white/10 px-3 py-1 rounded text-white transition-colors">+ Add Image</button>
+            </div>
+            <div id="gallery-fields-container" class="space-y-3 mb-6 bg-dark-900/50 p-4 rounded-md border border-white/5">
+                <!-- Dynamic fields -->
+            </div>
+
+            <div class="flex justify-end space-x-3 mt-6 border-t border-white/10 pt-6">
+                <button onclick="closeModals()" class="px-6 py-2.5 bg-transparent border border-white/10 hover:bg-dark-700 text-white rounded-md transition-colors">Cancel</button>
+                <button onclick="saveProject()" class="px-6 py-2.5 bg-accent-500 text-dark-900 rounded-md font-bold hover:bg-accent-400 transition-colors shadow-[0_0_15px_rgba(6,182,212,0.3)]">Save Project</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 외부 자바스크립트 파일 연결 -->
+    <script type="module" src="gallery.js"></script>
+</body>
+</html>
